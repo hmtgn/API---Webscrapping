@@ -270,3 +270,58 @@ def show_datasets():
         </body>
         </html>
     """, status_code=200)
+
+
+@router.get("/datasets/iris_species", response_class=HTMLResponse, tags=["data"])
+def show_iris_dataset():
+    """
+    Charge et affiche les données du fichier iris_species.csv dans un tableau HTML.
+    """
+    iris_csv_path = DATA_FOLDER + "/iris_species.csv"
+    # Vérifier si le fichier CSV existe
+    if not os.path.exists(iris_csv_path):
+        raise HTTPException(status_code=404, detail=f"Le fichier '{iris_csv_path}' n'a pas été trouvé.")
+    
+    # Charger le fichier CSV dans un DataFrame pandas
+    try:
+        df = pd.read_csv(iris_csv_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors du chargement des données : {str(e)}")
+
+    # Convertir les premières lignes du DataFrame en tableau HTML
+    table_html = df.to_html(index=False, classes='data-table', border=1)
+
+    # Retourner la réponse HTML avec le tableau des données
+    return HTMLResponse(content=f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Voir les données - Iris Species</title>
+            <style>
+                .data-table {{
+                    border-collapse: collapse;
+                    width: 100%;
+                    margin-top: 20px;
+                }}
+                .data-table th, .data-table td {{
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }}
+                .data-table th {{
+                    background-color: #f2f2f2;
+                }}
+                .data-table tr:hover {{
+                    background-color: #f5f5f5;
+                }}
+            </style>
+        </head>
+        <body>
+            <h1>Données du dataset: Iris Species</h1>
+            <p>Affichage des premières lignes du dataset iris_species.csv</p>
+            {table_html}
+            <br><br>
+            <a href='/api/datasets'>Retour à la liste des datasets</a>
+        </body>
+        </html>
+    """, status_code=200)
