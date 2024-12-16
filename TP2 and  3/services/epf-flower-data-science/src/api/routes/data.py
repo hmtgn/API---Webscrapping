@@ -325,3 +325,40 @@ def show_iris_dataset():
         </body>
         </html>
     """, status_code=200)
+
+@router.get("/datasets/iris_species/json", tags=["data"])
+def get_iris_dataset_as_json():
+    iris_csv_path = DATA_FOLDER + "/iris_species.csv"
+    if not os.path.exists(iris_csv_path):
+        raise HTTPException(status_code=404, detail="Le fichier 'iris_species.csv' n'a pas été trouvé.")
+    try:
+        df = pd.read_csv(iris_csv_path)
+        return JSONResponse(content=df.to_dict(orient="records"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors du chargement des données : {str(e)}")
+
+
+@router.get("/datasets/iris_species/preprocessed", tags=["data"])
+def preprocess_iris_dataset():
+    """
+    Prétraite le dataset Iris : gestion des valeurs manquantes, encodage, etc.
+    """
+    iris_csv_path = DATA_FOLDER + "/iris_species.csv"
+    if not os.path.exists(iris_csv_path):
+        raise HTTPException(status_code=404, detail="Le fichier 'iris_species.csv' n'a pas été trouvé.")
+    
+    try:
+        df = pd.read_csv(iris_csv_path)
+
+        # Exemple de prétraitement
+        # 1. Suppression des valeurs manquantes
+        df.dropna(inplace=True)
+        
+        # 2. Encodage des colonnes catégoriques (si nécessaire)
+        if "species" in df.columns:
+            df["species"] = df["species"].astype("category").cat.codes
+        
+    
+        return JSONResponse(content=df.to_dict(orient="records"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors du traitement des données : {str(e)}")
