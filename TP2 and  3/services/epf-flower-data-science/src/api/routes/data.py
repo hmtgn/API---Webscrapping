@@ -8,11 +8,20 @@ import shutil  # Utilisé pour renommer des fichiers
 from fastapi import APIRouter, HTTPException, Body
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi import Form
+from fastapi.responses import StreamingResponse
+from time import sleep
+import pandas as pd
+import os
+from sklearn.model_selection import train_test_split
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
 
 
 
 router = APIRouter()
 
+templates = Jinja2Templates(directory="src/template")
 DATA_FOLDER = "src/data"
 JSON_FOLDER = "src/config"
 DATASETS_JSON = os.path.join(JSON_FOLDER, "dataset.json")
@@ -56,6 +65,14 @@ def load_csv_from_folder(folder_path: str):
                 print(f"Erreur lors du chargement du fichier {file_name}: {e}")
     
     return csv_files
+
+
+@router.get("/datasets/iris_species/ui", response_class=HTMLResponse, tags=["data"])
+def get_full_process_ui(request: Request):
+    """
+    Sert l'interface utilisateur pour le processus complet.
+    """
+    return templates.TemplateResponse("full_process.html", {"request": request})
 
 @router.get("/download-dataset/{dataset_name}", tags=["data"])
 def download_dataset(dataset_name: str):
@@ -362,3 +379,48 @@ def preprocess_iris_dataset():
         return JSONResponse(content=df.to_dict(orient="records"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement des données : {str(e)}")
+
+
+
+
+@router.get("/datasets/iris_species/full_process", tags=["data"])
+async def full_process_iris_dataset_stream(test_size: float = 0.2, random_state: int = 42):
+    """
+    Exécute le processus complet avec des événements en streaming.
+    Envoie également les résultats du train/test split.
+    """
+    iris_csv_path = os.path.join(DATA_FOLDER, "iris_species.csv")
+
+    async def event_stream():
+        try:
+            # Étape 1 : Charger les données
+            yield "data:  étape 1 : Chargement des données...\n\n"
+            sleep(1)
+            df = pd.read_csv(iris_csv_path)
+
+            # Étape 2 : Prétraitement
+            yield "data:  étape 2 : Prétraitement...\n\n"
+            sleep(1)
+            df.dropna(inplace=True)
+            if "Species" in df.columns:
+                df["Species"] = df["Species"].astype("category").cat.codes
+
+            # Étape 3 : Division des données
+            yield "data:  étape 3 : Division des données...\n\n"
+            sleep(1)
+            X = df.drop("Species", axis=1)
+            y = df["Species"]
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+
+            # Préparer les résultats
+            train_data = pd.concat([X_train, y_train], axis=1).to_json(orient="records")
+            test_data = pd.concat([X_test, y_test], axis=1).to_json(orient="records")
+
+            # Étape finale : Envoi des résultats
+            yield f"data: Train Split: {train_data}\n\n"
+            yield f"data: Test Split: {test_data}\n\n"
+            yield "data: Processus terminé avec succès !\n\n"
+        except Exception as e:
+            yield f"data: Erreur : {str(e)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")

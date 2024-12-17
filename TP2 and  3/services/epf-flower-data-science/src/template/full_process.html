@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processus Complet - Iris Dataset</title>
+    <style>
+        #output {
+            font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 10px;
+            width: 80%;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+
+        #loader {
+            display: none;
+            margin: 10px auto;
+            width: 50px;
+            height: 50px;
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #3498db;
+            border-radius: 50%;
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Processus Complet - Iris Dataset</h1>
+    <button onclick="startProcess()">Lancer le processus</button>
+    <div id="loader"></div>
+    <div id="output"></div>
+
+    <script>
+        function startProcess() {
+            const loader = document.getElementById("loader");
+            const output = document.getElementById("output");
+            output.innerHTML = ""; // Clear output
+            loader.style.display = "block"; // Show loader
+
+            const eventSource = new EventSource("/api/datasets/iris_species/full_process");
+
+            let trainData = null;
+            let testData = null;
+
+            eventSource.onmessage = function(event) {
+                const message = event.data;
+
+                // Afficher les messages d'étapes
+                if (message.startsWith("Train Split:")) {
+                    trainData = JSON.parse(message.replace("Train Split: ", ""));
+                    output.innerHTML += "<h3>Ensemble d'entrainement :</h3>";
+                    output.innerHTML += `<pre>${JSON.stringify(trainData, null, 2)}</pre>`;
+                } else if (message.startsWith("Test Split:")) {
+                    testData = JSON.parse(message.replace("Test Split: ", ""));
+                    output.innerHTML += "<h3>Ensemble de test :</h3>";
+                    output.innerHTML += `<pre>${JSON.stringify(testData, null, 2)}</pre>`;
+                } else {
+                    output.innerHTML += `<p>${message}</p>`;
+                }
+            };
+
+            eventSource.onerror = function() {
+                loader.style.display = "none"; // Hide loader on error
+                output.innerHTML += "<p style='color: red;'>Erreur pendant le processus.</p>";
+                eventSource.close();
+            };
+
+            eventSource.addEventListener("end", () => {
+                loader.style.display = "none"; // Hide loader on completion
+                eventSource.close();
+            });
+        }
+    </script>
+</body>
+</html>
