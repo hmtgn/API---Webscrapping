@@ -381,6 +381,50 @@ def preprocess_iris_dataset():
         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement des données : {str(e)}")
 
 
+@router.api_route("/datasets/split", methods=["GET", "POST"], tags=["data"])
+def train_test_split_endpoint(
+    test_size: float = 0.2,
+    random_state: int = 42,
+):
+    """
+    Effectue un train/test split sur un dataset donné.
+    Les paramètres peuvent être passés via une requête GET ou un formulaire POST.
+    """
+    
+    iris_csv_path = DATA_FOLDER + "/iris_species.csv"
+
+    if not os.path.exists(iris_csv_path):
+        raise HTTPException(status_code=404, detail=f"Le fichier '{iris_csv_path}.csv' n'a pas été trouvé.")
+
+    try:
+        # Étape 1 : Charger les données
+        sleep(1)
+        df = pd.read_csv(iris_csv_path)
+
+        # Étape 2 : Prétraitement
+        sleep(1)
+        df.dropna(inplace=True)
+        if "Species" in df.columns:
+            df["Species"] = df["Species"].astype("category").cat.codes
+
+        # Étape 3 : Division des données
+        sleep(1)
+        X = df.drop("Species", axis=1)
+        y = df["Species"]
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+
+        # Préparer les résultats
+        train_data = pd.concat([X_train, y_train], axis=1).to_json(orient="records")
+        test_data = pd.concat([X_test, y_test], axis=1).to_json(orient="records")
+
+        # Étape finale : Envoi des résultats
+        yield f"data: Train Split: {train_data}\n\n"
+        yield f"data: Test Split: {test_data}\n\n"
+        yield "data: Processus terminé avec succès !\n\n"
+    except Exception as e:
+        yield f"data: Erreur : {str(e)}\n\n"
+
+
 
 
 @router.get("/datasets/iris_species/full_process", tags=["data"])
