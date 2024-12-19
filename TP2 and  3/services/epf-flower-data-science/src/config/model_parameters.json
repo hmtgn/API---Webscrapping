@@ -1,0 +1,8 @@
+{
+    "RandomForestClassifier": {
+        "n_estimators": 100,
+        "criterion": "gini",
+        "max_depth": null,
+        "random_state": 42
+    }
+}

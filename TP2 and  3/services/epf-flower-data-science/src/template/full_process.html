@@ -69,7 +69,6 @@
 
             eventSource.onerror = function() {
                 loader.style.display = "none"; // Hide loader on error
-                output.innerHTML += "<p style='color: red;'>Erreur pendant le processus.</p>";
                 eventSource.close();
             };
 

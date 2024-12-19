@@ -16,6 +16,8 @@ from sklearn.model_selection import train_test_split
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
+from sklearn.ensemble import RandomForestClassifier
+import joblib  # For saving the trained model
 
 
 
@@ -24,7 +26,9 @@ router = APIRouter()
 templates = Jinja2Templates(directory="src/template")
 DATA_FOLDER = "src/data"
 JSON_FOLDER = "src/config"
+MODELS_FOLDER = "src/models"
 DATASETS_JSON = os.path.join(JSON_FOLDER, "dataset.json")
+MODEL_PARAMETERS_FILE = os.path.join(JSON_FOLDER, "model_parameters.json")
 
 # Fonction pour lire le fichier JSON des datasets
 def load_datasets():
@@ -65,6 +69,15 @@ def load_csv_from_folder(folder_path: str):
                 print(f"Erreur lors du chargement du fichier {file_name}: {e}")
     
     return csv_files
+
+def load_model_parameters():
+    """
+    Load model parameters from the JSON file.
+    """
+    if os.path.exists(MODEL_PARAMETERS_FILE):
+        with open(MODEL_PARAMETERS_FILE, "r") as file:
+            return json.load(file)
+    return {}
 
 
 @router.get("/datasets/iris_species/ui", response_class=HTMLResponse, tags=["data"])
@@ -424,33 +437,80 @@ def train_test_split_endpoint(
     except Exception as e:
         yield f"data: Erreur : {str(e)}\n\n"
 
+@router.post("/train-model", tags=["model"])
+def train_classification_model():
+    """
+    Entraîne un modèle de classification à partir du dataset traité.
+    Enregistre le modèle dans le dossier src/models.
+    """
+    iris_csv_path = os.path.join(DATA_FOLDER, "iris_species.csv")
+    if not os.path.exists(iris_csv_path):
+        raise HTTPException(status_code=404, detail="Le dataset traité est introuvable.")
 
+    # Charger le dataset
+    try:
+        df = pd.read_csv(iris_csv_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors du chargement du dataset : {str(e)}")
+    
+    # Vérifier que la colonne cible 'Species' est présente
+    if "Species" not in df.columns:
+        raise HTTPException(status_code=500, detail="Le dataset doit inclure la colonne 'Species'.")
 
+    try:
+        # Séparation des features et de la cible
+        X = df.drop("Species", axis=1)
+        y = df["Species"]
+
+        # Charger les paramètres du modèle depuis model_parameters.json
+        model_parameters = load_model_parameters().get("RandomForestClassifier", {})
+        model = RandomForestClassifier(**model_parameters)
+
+        # Entraîner le modèle
+        model.fit(X, y)
+
+        # Sauvegarder le modèle entraîné
+        model_path = os.path.join(MODELS_FOLDER, "iris_random_forest_model.pkl")
+        joblib.dump(model, model_path)
+
+        return {
+            "message": "Modèle entraîné et sauvegardé avec succès.",
+            "model_path": model_path,
+            "parameters": model_parameters
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur pendant l'entraînement du modèle : {str(e)}")
 
 @router.get("/datasets/iris_species/full_process", tags=["data"])
 async def full_process_iris_dataset_stream(test_size: float = 0.2, random_state: int = 42):
     """
-    Exécute le processus complet avec des événements en streaming.
-    Envoie également les résultats du train/test split.
+    Exécute le processus complet avec des événements en streaming :
+    - Chargement des données
+    - Prétraitement
+    - Train/Test Split
+    - Entraînement du modèle
     """
     iris_csv_path = os.path.join(DATA_FOLDER, "iris_species.csv")
 
     async def event_stream():
         try:
-            # Étape 1 : Charger les données
-            yield "data:  étape 1 : Chargement des données...\n\n"
+            # Étape 1 : Chargement des données
+            yield "data: Étape 1 : Chargement des données...\n\n"
             sleep(1)
             df = pd.read_csv(iris_csv_path)
 
             # Étape 2 : Prétraitement
-            yield "data:  étape 2 : Prétraitement...\n\n"
+            yield "data: Étape 2 : Prétraitement...\n\n"
             sleep(1)
             df.dropna(inplace=True)
             if "Species" in df.columns:
                 df["Species"] = df["Species"].astype("category").cat.codes
 
+            # Sauvegarde des données prétraitées
+            df.to_csv(iris_csv_path, index=False)
+
             # Étape 3 : Division des données
-            yield "data:  étape 3 : Division des données...\n\n"
+            yield "data: Étape 3 : Division des données...\n\n"
             sleep(1)
             X = df.drop("Species", axis=1)
             y = df["Species"]
@@ -459,12 +519,28 @@ async def full_process_iris_dataset_stream(test_size: float = 0.2, random_state:
             # Préparer les résultats
             train_data = pd.concat([X_train, y_train], axis=1).to_json(orient="records")
             test_data = pd.concat([X_test, y_test], axis=1).to_json(orient="records")
+            if train_data :
+                yield f"data: Train Split: ok \n\n"
+            if test_data:
+                yield f"data: Test Split: ok \n\n"
 
-            # Étape finale : Envoi des résultats
-            yield f"data: Train Split: {train_data}\n\n"
-            yield f"data: Test Split: {test_data}\n\n"
-            yield "data: Processus terminé avec succès !\n\n"
+            # Étape 4 : Entraînement du modèle
+            yield "data: Étape 4 : Entraînement du modèle avec train split...\n\n"
+            sleep(1)
+            model_parameters = load_model_parameters().get("RandomForestClassifier", {})
+            model = RandomForestClassifier(**model_parameters)
+            model.fit(X_train, y_train)  # Utilisation des splits d'entraînement
+
+            # Sauvegarde du modèle
+            model_path = os.path.join(MODELS_FOLDER, "iris_random_forest_model.pkl")
+            joblib.dump(model, model_path)
+
+            yield f"data: Modèle entraîné sur train split et sauvegardé à {model_path}\n\n"
+
+            # Fin du processus
+            yield "data: Processus complet terminé avec succès !\n\n"
         except Exception as e:
             yield f"data: Erreur : {str(e)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
