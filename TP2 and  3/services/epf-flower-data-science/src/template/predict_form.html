@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Prediction Input</title>
+</head>
+<body>
+    <h1>Enter Parameters for Prediction</h1>
+    <form action="/api/predict/ui" method="post">
+        <label for="sepal_length">Sepal Length:</label><br>
+        <input type="number" step="any" name="sepal_length" required><br><br>
+
+        <label for="sepal_width">Sepal Width:</label><br>
+        <input type="number" step="any" name="sepal_width" required><br><br>
+
+        <label for="petal_length">Petal Length:</label><br>
+        <input type="number" step="any" name="petal_length" required><br><br>
+
+        <label for="petal_width">Petal Width:</label><br>
+        <input type="number" step="any" name="petal_width" required><br><br>
+
+        <button type="submit">Predict</button>
+    </form>
+</body>
+</html>

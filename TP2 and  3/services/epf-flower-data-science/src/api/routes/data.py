@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi import Request
 from sklearn.ensemble import RandomForestClassifier
 import joblib  # For saving the trained model
+import numpy as np
 
 
 
@@ -79,13 +80,19 @@ def load_model_parameters():
             return json.load(file)
     return {}
 
-
-@router.get("/datasets/iris_species/ui", response_class=HTMLResponse, tags=["data"])
-def get_full_process_ui(request: Request):
+@router.get("/train/ui", response_class=HTMLResponse, tags=["model"])
+def get_prediction_ui(request: Request):
     """
-    Sert l'interface utilisateur pour le processus complet.
+    Serve an HTML form for entering prediction parameters.
     """
     return templates.TemplateResponse("full_process.html", {"request": request})
+
+@router.get("/predict/ui", response_class=HTMLResponse, tags=["model"])
+def get_prediction_ui(request: Request):
+    """
+    Serve an HTML form for entering prediction parameters.
+    """
+    return templates.TemplateResponse("predict_form.html", {"request": request})
 
 @router.get("/download-dataset/{dataset_name}", tags=["data"])
 def download_dataset(dataset_name: str):
@@ -512,8 +519,10 @@ async def full_process_iris_dataset_stream(test_size: float = 0.2, random_state:
             # Étape 3 : Division des données
             yield "data: Étape 3 : Division des données...\n\n"
             sleep(1)
-            X = df.drop("Species", axis=1)
+            X = df.drop(columns=["Id", "Species"])  # Exclude 'Id' and 'Species'
             y = df["Species"]
+            yield f"data: X : {X}\n\n"
+
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
 
             # Préparer les résultats
@@ -544,3 +553,75 @@ async def full_process_iris_dataset_stream(test_size: float = 0.2, random_state:
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
+@router.post("/predict", tags=["model"])
+def predict_with_model(features: dict):
+    """
+    Endpoint to make predictions with the trained RandomForest model.
+
+    Args:
+        features (dict): Input features for prediction, as a JSON object.
+
+    Returns:
+        JSON: Predictions for the input features.
+    """
+    model_path = os.path.join(MODELS_FOLDER, "iris_random_forest_model.pkl")
+
+    if not os.path.exists(model_path):
+        raise HTTPException(status_code=404, detail="Trained model not found. Train the model first.")
+
+    try:
+        model = joblib.load(model_path)
+
+        # Convert to NumPy array
+        input_features = np.array(list(features.values())).reshape(1, -1)
+
+        if input_features.shape[1] != model.n_features_in_:
+            raise HTTPException(
+                status_code=400,
+
+                detail=f"Model expects {model.n_features_in_} features, but received {input_features.shape[1]}"
+            )
+
+        # Make predictions
+        predictions = model.predict(input_features)
+        probabilities = model.predict_proba(input_features)
+
+        return {
+            "predictions": predictions.tolist(),
+            "probabilities": probabilities.tolist()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error during prediction: {str(e)}")
+
+    
+@router.post("/predict/ui", response_class=HTMLResponse, tags=["model"])
+async def predict_from_ui(
+    request: Request,
+    sepal_length: float = Form(...),
+    sepal_width: float = Form(...),
+    petal_length: float = Form(...),
+    petal_width: float = Form(...)
+):
+    """
+    Process input from the prediction form and send it to the /predict endpoint.
+    """
+    input_features = {
+        "sepal_length": sepal_length,
+        "sepal_width": sepal_width,
+        "petal_length": petal_length,
+        "petal_width": petal_width,
+    }
+
+    # Send data to the /predict endpoint
+    predictions = None
+    try:
+        model_response = predict_with_model(input_features)
+        predictions = model_response
+    except HTTPException as e:
+        predictions = {"error": e.detail}
+
+    # Render the response in HTML
+    return templates.TemplateResponse(
+        "predict_result.html",
+        {"request": request, "predictions": predictions, "features": input_features}
+    )
