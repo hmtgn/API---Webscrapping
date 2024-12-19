@@ -1,0 +1,28 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Prediction Result</title>
+</head>
+<body>
+    <h1>Prediction Result</h1>
+    <h2>Input Features</h2>
+    <ul>
+        <li>Sepal Length: {{ features["sepal_length"] }}</li>
+        <li>Sepal Width: {{ features["sepal_width"] }}</li>
+        <li>Petal Length: {{ features["petal_length"] }}</li>
+        <li>Petal Width: {{ features["petal_width"] }}</li>
+    </ul>
+
+    <h2>Predictions</h2>
+    {% if predictions.error %}
+        <p style="color:red;">Error: {{ predictions.error }}</p>
+    {% else %}
+        <p>Predicted Class: {{ predictions["predictions"][0] }}</p>
+        <p>Probabilities: {{ predictions["probabilities"][0] }}</p>
+    {% endif %}
+
+    <br>
+    <a href="/api/predict/ui">Back to Input Form</a>
+</body>
+</html>
