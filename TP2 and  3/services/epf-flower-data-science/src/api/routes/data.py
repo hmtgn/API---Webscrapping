@@ -24,22 +24,39 @@ from firebase_admin import credentials, firestore
 from fastapi import Depends, HTTPException, Security
 from fastapi.security import HTTPBearer
 import firebase_admin.auth as firebase_auth
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
 
 auth_scheme = HTTPBearer()
-
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
-
 templates = Jinja2Templates(directory="src/template")
 DATA_FOLDER = "src/data"
 JSON_FOLDER = "src/config"
 MODELS_FOLDER = "src/models"
 DATASETS_JSON = os.path.join(JSON_FOLDER, "dataset.json")
 MODEL_PARAMETERS_FILE = os.path.join(JSON_FOLDER, "model_parameters.json")
+
 cred = credentials.Certificate("src/config/datasources-api-montagnon-firebase-adminsdk-gpdo6-9a8eca22db.json")
 firebase_admin.initialize_app(cred)
-
-# Get a reference to the Firestore service
 db = firestore.client()
+    
+def rate_limit_key_func(request: Request):
+    # Vérifie si un token Firebase est présent
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            decoded_token = firebase_auth.verify_id_token(token)
+            return decoded_token["uid"]  # Utiliser l'UID Firebase comme clé
+        except Exception:
+            pass
+    # Retour par défaut à l'adresse IP si aucun token valide
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=rate_limit_key_func)
 
 def verify_firebase_token(token: str = Security(auth_scheme)):
     """
@@ -103,6 +120,7 @@ def load_model_parameters():
         with open(MODEL_PARAMETERS_FILE, "r") as file:
             return json.load(file)
     return {}
+
 
 @router.get("/train/ui", response_class=HTMLResponse, tags=["model"])
 def get_prediction_ui(request: Request):
@@ -696,3 +714,8 @@ def retrieve_firestore_parameters():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving parameters: {str(e)}")
 
+
+@router.get("/protected-endpoint")
+@limiter.limit("5/minute")  # Limite à 5 requêtes par minute par utilisateur
+async def protected_endpoint(request: Request):
+    return {"message": "This endpoint is rate-limited per user!"}
