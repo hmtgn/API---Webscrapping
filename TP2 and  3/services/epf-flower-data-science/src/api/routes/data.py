@@ -28,8 +28,6 @@ import firebase_admin.auth as firebase_auth
 auth_scheme = HTTPBearer()
 
 router = APIRouter()
-
-
 templates = Jinja2Templates(directory="src/template")
 DATA_FOLDER = "src/data"
 JSON_FOLDER = "src/config"
