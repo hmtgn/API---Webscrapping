@@ -40,6 +40,13 @@ firebase_admin.initialize_app(cred)
 # Get a reference to the Firestore service
 db = firestore.client()
 
+def is_admin(decoded_token):
+    """
+    Check if the user is an admin based on their custom claims.
+    """
+    return decoded_token.get("admin", False)
+
+
 def verify_firebase_token(token: str = Security(auth_scheme)):
     """
     Verifies a Firebase token and retrieves the user information.
@@ -695,3 +702,77 @@ def retrieve_firestore_parameters():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving parameters: {str(e)}")
 
+@router.post("/update-parameters", tags=["firestore"])
+def update_firestore_parameters(parameters: dict = Body(...)):
+    """
+    Update or add parameters in the Firestore 'parameters' document.
+    """
+    try:
+        # Reference to the Firestore document
+        doc_ref = db.collection("parameters").document("parameters")
+
+        # Update or add the parameters
+        doc_ref.set(parameters, merge=True)
+
+        return {"message": "Parameters updated successfully", "parameters": parameters}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating parameters: {str(e)}")
+
+@router.post("/register", tags=["auth"])
+def register_user(email: str = Form(...), password: str = Form(...)):
+    """
+    Register a new user in Firebase Authentication.
+    """
+    try:
+        user = firebase_auth.create_user(email=email, password=password)
+        return {"message": "User registered successfully", "user_id": user.uid}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error registering user: {str(e)}")
+
+
+@router.post("/login", tags=["auth"])
+def login_user(email: str = Form(...), password: str = Form(...)):
+    """
+    Login user by generating a custom Firebase token.
+    """
+    try:
+        user = firebase_auth.get_user_by_email(email)
+        custom_token = firebase_auth.create_custom_token(user.uid)
+        return {"message": "Login successful", "token": custom_token.decode('utf-8')}
+
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Login failed: {str(e)}")
+
+
+@router.post("/assign-role", tags=["auth"])
+def assign_role(user_id: str = Form(...), admin: bool = Form(...)):
+    """
+    Assign or update a user's role in Firebase Authentication.
+    """
+    try:
+        firebase_auth.set_custom_user_claims(user_id, {"admin": admin})
+        return {"message": f"Role {'admin' if admin else 'user'} assigned to user {user_id}"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error assigning role: {str(e)}")
+
+
+@router.get("/users", tags=["auth"])
+def list_users(decoded_token: dict = Depends(verify_firebase_token)):
+    """
+    List all users; accessible only to admins.
+    """
+    if not is_admin(decoded_token):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        users = []
+        for user in firebase_auth.list_users().iterate_all():
+            users.append({"uid": user.uid, "email": user.email, "custom_claims": user.custom_claims})
+
+        return {"message": "User list retrieved successfully", "users": users}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving users: {str(e)}")
