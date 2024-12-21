@@ -19,8 +19,13 @@ from fastapi import Request
 from sklearn.ensemble import RandomForestClassifier
 import joblib  # For saving the trained model
 import numpy as np
+import firebase_admin
+from firebase_admin import credentials, firestore
+from fastapi import Depends, HTTPException, Security
+from fastapi.security import HTTPBearer
+import firebase_admin.auth as firebase_auth
 
-
+auth_scheme = HTTPBearer()
 
 router = APIRouter()
 
@@ -30,6 +35,25 @@ JSON_FOLDER = "src/config"
 MODELS_FOLDER = "src/models"
 DATASETS_JSON = os.path.join(JSON_FOLDER, "dataset.json")
 MODEL_PARAMETERS_FILE = os.path.join(JSON_FOLDER, "model_parameters.json")
+cred = credentials.Certificate("src/config/datasources-api-montagnon-firebase-adminsdk-gpdo6-9a8eca22db.json")
+firebase_admin.initialize_app(cred)
+
+# Get a reference to the Firestore service
+db = firestore.client()
+
+def verify_firebase_token(token: str = Security(auth_scheme)):
+    """
+    Verifies a Firebase token and retrieves the user information.
+    """
+    try:
+        # Verify the token using Firebase Admin SDK
+        decoded_token = firebase_auth.verify_id_token(token.credentials)
+        return decoded_token
+    except firebase_auth.InvalidIdTokenError:
+        raise HTTPException(status_code=401, detail="Invalid authentication token.")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication error: {str(e)}")
+
 
 # Fonction pour lire le fichier JSON des datasets
 def load_datasets():
@@ -625,3 +649,50 @@ async def predict_from_ui(
         "predict_result.html",
         {"request": request, "predictions": predictions, "features": input_features}
     )
+
+
+@router.post("/create-parameters", tags=["firestore"])
+def create_firestore_parameters():
+    """
+    Creates the 'parameters' Firestore collection with 'n_estimators' and 'criterion'.
+    """
+    try:
+        # Define the parameters you want to save
+        parameters = {
+            "n_estimators": 100,
+            "criterion": "gini"
+        }
+
+        # Reference to the Firestore collection and document
+        doc_ref = db.collection("parameters").document("parameters")
+
+        # Set the data for the document
+        doc_ref.set(parameters)
+
+        return {"message": "Firestore document 'parameters' created successfully", "parameters": parameters}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating Firestore document: {str(e)}")
+
+
+@router.get("/retrieve-parameters", tags=["firestore"])
+def retrieve_firestore_parameters():
+    """
+    Retrieve parameters from the Firestore 'parameters' document.
+    """
+    try:
+        # Reference to the Firestore collection and document
+        doc_ref = db.collection("parameters").document("parameters")
+
+        # Get the document
+        doc = doc_ref.get()
+
+        if doc.exists:
+            parameters = doc.to_dict()
+            return {"message": "Parameters retrieved successfully", "parameters": parameters}
+        else:
+            raise HTTPException(status_code=404, detail="Document 'parameters' not found in Firestore")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving parameters: {str(e)}")
+
