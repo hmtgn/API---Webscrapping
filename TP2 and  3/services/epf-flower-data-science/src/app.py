@@ -7,7 +7,7 @@ from src.api.router import router
 def get_application() -> FastAPI:
     application = FastAPI(
         title="epf-flower-data-science",
-        description="""Fast API""",
+        description="""API with versioning and custom error handling.""",
         version="1.0.0",
         redoc_url=None,
     )

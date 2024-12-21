@@ -45,7 +45,7 @@
             output.innerHTML = ""; // Clear output
             loader.style.display = "block"; // Show loader
 
-            const eventSource = new EventSource("/api/datasets/iris_species/full_process");
+            const eventSource = new EventSource("/v1/datasets/iris_species/full_process");
 
             let trainData = null;
             let testData = null;
