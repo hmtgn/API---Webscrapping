@@ -44,6 +44,15 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
     
 def rate_limit_key_func(request: Request):
+    """
+    Determine the rate-limiting key based on Firebase UID or IP address.
+
+    Args:
+        request (Request): The incoming HTTP request object.
+
+    Returns:
+        str: The Firebase UID if authenticated, otherwise the remote IP address.
+    """
     # Vérifie si un token Firebase est présent
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
@@ -60,7 +69,16 @@ limiter = Limiter(key_func=rate_limit_key_func)
 
 def verify_firebase_token(token: str = Security(auth_scheme)):
     """
-    Verifies a Firebase token and retrieves the user information.
+    Verifies a Firebase authentication token and retrieves user details.
+
+    Args:
+        token (str): The Firebase authentication token provided by the client.
+
+    Returns:
+        dict: Decoded token information if valid.
+
+    Raises:
+        HTTPException: If the token is invalid or authentication fails.
     """
     try:
         # Verify the token using Firebase Admin SDK
@@ -74,6 +92,12 @@ def verify_firebase_token(token: str = Security(auth_scheme)):
 
 # Fonction pour lire le fichier JSON des datasets
 def load_datasets():
+    """
+    Reads the dataset configuration file (JSON) containing dataset metadata.
+
+    Returns:
+        dict: Parsed JSON content of datasets if the file exists.
+    """
     if os.path.exists(JSON_FOLDER):
         with open(DATASETS_JSON, "r") as file:
             return json.load(file)
@@ -81,16 +105,27 @@ def load_datasets():
 
 # Fonction pour sauvegarder le fichier JSON des datasets
 def save_datasets(datasets):
+    """
+    Saves the dataset metadata to a JSON file.
+
+    Args:
+        datasets (dict): Dataset metadata to save.
+    """
     with open(DATASETS_JSON, "w") as file:
         json.dump(datasets, file, indent=4)
 
 def load_csv_from_folder(folder_path: str):
     """
-    Charge tous les fichiers CSV présents dans un dossier et les retourne sous forme de dictionnaire
-    avec le nom du fichier comme clé et le DataFrame comme valeur.
-    
-    :param folder_path: Chemin vers le dossier contenant les fichiers CSV
-    :return: Dictionnaire où chaque clé est le nom du fichier CSV et chaque valeur est le DataFrame
+    Load all CSV files from a given folder into a dictionary of DataFrames.
+
+    Args:
+        folder_path (str): Path to the folder containing CSV files.
+
+    Returns:
+        dict: Dictionary where keys are file names and values are DataFrames.
+
+    Raises:
+        FileNotFoundError: If the folder does not exist.
     """
     csv_files = {}
     
@@ -114,7 +149,10 @@ def load_csv_from_folder(folder_path: str):
 
 def load_model_parameters():
     """
-    Load model parameters from the JSON file.
+    Load machine learning model parameters from the configuration file.
+
+    Returns:
+        dict: Dictionary of model parameters if the file exists.
     """
     if os.path.exists(MODEL_PARAMETERS_FILE):
         with open(MODEL_PARAMETERS_FILE, "r") as file:
@@ -125,14 +163,26 @@ def load_model_parameters():
 @router.get("/train/ui", response_class=HTMLResponse, tags=["model"])
 def get_prediction_ui(request: Request):
     """
-    Serve an HTML form for entering prediction parameters.
+    Serve an HTML form to initiate the training process for a machine learning model.
+
+    Args:
+        request (Request): The incoming HTTP request object.
+
+    Returns:
+        HTMLResponse: An HTML page containing the training UI.
     """
     return templates.TemplateResponse("full_process.html", {"request": request})
 
 @router.get("/predict/ui", response_class=HTMLResponse, tags=["model"])
 def get_prediction_ui(request: Request):
     """
-    Serve an HTML form for entering prediction parameters.
+    Serve an HTML form to input features for making predictions using a trained model.
+
+    Args:
+        request (Request): The incoming HTTP request object.
+
+    Returns:
+        HTMLResponse: An HTML page containing the prediction input form.
     """
     return templates.TemplateResponse("predict_form.html", {"request": request})
 
@@ -146,11 +196,11 @@ def download_dataset(dataset_name: str):
         as defined in the `datasets.json` file. The dataset is downloaded, unzipped,
         and the main CSV file is renamed to match the given `dataset_name`.
 
-    Inputs:
+    Args:
         - dataset_name (str): The name of the dataset to be downloaded. This must match
           one of the keys in the `datasets.json` file.
 
-    Outputs:
+    Returns:
         - Success (200): JSON object with the following keys:
             - message (str): Confirmation message of the successful download and rename.
             - path (str): File path to the renamed CSV file.
@@ -216,11 +266,13 @@ def download_dataset(dataset_name: str):
         # Erreur 500 pour toute autre erreur
         raise HTTPException(status_code=503, detail=f"Error processing dataset: {str(e)}")
 
-
 @router.get("/manage-datasets", response_class=HTMLResponse, tags=["data"])
 def show_manage_datasets_form():
     """
-    Affiche un formulaire HTML pour entrer une URL de dataset Kaggle.
+    Display an HTML form to manage Kaggle datasets.
+
+    Returns:
+        HTMLResponse: An HTML page containing the form to add or remove Kaggle datasets.
     """
     html_content = """
     <!DOCTYPE html>
@@ -242,65 +294,63 @@ def show_manage_datasets_form():
     """
     return HTMLResponse(content=html_content)
 
+
 @router.post("/manage-datasets", response_class=HTMLResponse, tags=["data"])
 def manage_datasets(dataset_name: str = Form(...), dataset_url: str = Form(...)):
     """
-    Gère les datasets dans le fichier JSON : ajouter ou supprimer un dataset basé sur l'URL.
-    
+    Manage Kaggle datasets in the dataset configuration JSON file.
+
     Args:
-        dataset_name (str): Le nom du dataset.
-        dataset_url (str): L'URL du dataset Kaggle.
-    
+        dataset_name (str): The name of the dataset to add or remove.
+        dataset_url (str): The Kaggle URL of the dataset.
+
     Returns:
-        HTMLResponse: Confirmation ou message d'erreur.
+        HTMLResponse: A confirmation message indicating whether the dataset was added or removed.
     """
     datasets = load_datasets()
 
-    # Vérifier si le dataset existe déjà
     dataset_key = dataset_name.lower().replace(" ", "_")
-    
     if dataset_key in datasets:
-        # Si le dataset existe déjà, le supprimer
+        # Remove the dataset if it already exists
         del datasets[dataset_key]
-        message = f"Le dataset '{dataset_name}' a été supprimé."
+        message = f"The dataset '{dataset_name}' has been removed."
     else:
-        # Si le dataset n'existe pas, l'ajouter
+        # Add the dataset if it does not exist
         datasets[dataset_key] = {
             "name": dataset_name,
             "url": dataset_url,
             "csv": dataset_key + ".csv"
         }
-        message = f"Le dataset '{dataset_name}' a été ajouté avec succès."
-    
-    # Sauvegarde des datasets dans le fichier JSON
+        message = f"The dataset '{dataset_name}' has been added successfully."
+
     save_datasets(datasets)
 
-    # Retour à l'utilisateur avec un message de confirmation
     return HTMLResponse(content=f"""
         <!DOCTYPE html>
         <html>
         <body>
             <h1>{message}</h1>
             <p>{message}</p>
-            <a href="/api/manage-datasets">Retour au formulaire</a>
+            <a href="/api/manage-datasets">Return to the form</a>
         </body>
         </html>
     """, status_code=200)
 
+
 @router.get("/datasets", response_class=HTMLResponse, tags=["data"])
 def show_datasets():
     """
-    Affiche un tableau HTML avec les datasets disponibles.
+    Display a table of available datasets.
+
+    Returns:
+        HTMLResponse: An HTML page showing a table of datasets and their details.
     """
     datasets = load_datasets()
 
     if not datasets:
-        return HTMLResponse(content="<h1>Aucun dataset disponible</h1>", status_code=404)
+        return HTMLResponse(content="<h1>No datasets available</h1>", status_code=404)
 
-    # Créer un tableau HTML pour afficher les datasets
-    table_content = "<table border='1' style='width:100%'><tr><th>Nom</th><th>URL</th>"
-
-    # Ajouter chaque dataset au tableau
+    table_content = "<table border='1' style='width:100%'><tr><th>Name</th><th>URL</th>"
     for dataset_key, dataset_info in datasets.items():
         table_content += f"""
         <tr>
@@ -308,7 +358,6 @@ def show_datasets():
             <td><a href='https://www.kaggle.com/datasets/{dataset_info['url']}' target='_blank'>{dataset_info['url']}</a></td>
         </tr>
         """
-
     table_content += "</table>"
 
     return HTMLResponse(content=f"""
@@ -342,10 +391,10 @@ def show_datasets():
             </style>
         </head>
         <body>
-            <h1>Datasets Disponibles</h1>
+            <h1>Available Datasets</h1>
             {table_content}
             <br><br>
-            <a href="/docs">Retour à la gestion</a>
+            <a href="/docs">Return to management</a>
         </body>
         </html>
     """, status_code=200)
@@ -354,28 +403,30 @@ def show_datasets():
 @router.get("/datasets/iris_species", response_class=HTMLResponse, tags=["data"])
 def show_iris_dataset():
     """
-    Charge et affiche les données du fichier iris_species.csv dans un tableau HTML.
+    Display the content of the `iris_species.csv` dataset in a table format.
+
+    Returns:
+        HTMLResponse: An HTML page containing a table with the dataset's data.
+
+    Raises:
+        HTTPException: If the dataset file is not found or cannot be loaded.
     """
     iris_csv_path = DATA_FOLDER + "/iris_species.csv"
-    # Vérifier si le fichier CSV existe
     if not os.path.exists(iris_csv_path):
-        raise HTTPException(status_code=404, detail=f"Le fichier '{iris_csv_path}' n'a pas été trouvé.")
-    
-    # Charger le fichier CSV dans un DataFrame pandas
+        raise HTTPException(status_code=404, detail=f"The file '{iris_csv_path}' was not found.")
+
     try:
         df = pd.read_csv(iris_csv_path)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur lors du chargement des données : {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error loading data: {str(e)}")
 
-    # Convertir les premières lignes du DataFrame en tableau HTML
     table_html = df.to_html(index=False, classes='data-table', border=1)
 
-    # Retourner la réponse HTML avec le tableau des données
     return HTMLResponse(content=f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Voir les données - Iris Species</title>
+            <title>View Data - Iris Species</title>
             <style>
                 .data-table {{
                     border-collapse: collapse;
@@ -396,215 +447,219 @@ def show_iris_dataset():
             </style>
         </head>
         <body>
-            <h1>Données du dataset: Iris Species</h1>
-            <p>Affichage des premières lignes du dataset iris_species.csv</p>
+            <h1>Dataset Data: Iris Species</h1>
+            <p>Displaying the first rows of the iris_species.csv dataset.</p>
             {table_html}
             <br><br>
-            <a href='/api/datasets'>Retour à la liste des datasets</a>
+            <a href='/api/datasets'>Return to the dataset list</a>
         </body>
         </html>
     """, status_code=200)
 
 @router.get("/datasets/iris_species/json", tags=["data"])
 def get_iris_dataset_as_json():
+    """
+    Provide the `iris_species.csv` dataset as a JSON response.
+
+    Returns:
+        JSONResponse: The dataset in JSON format.
+
+    Raises:
+        HTTPException: If the dataset file is not found or cannot be loaded.
+    """
     iris_csv_path = DATA_FOLDER + "/iris_species.csv"
     if not os.path.exists(iris_csv_path):
-        raise HTTPException(status_code=404, detail="Le fichier 'iris_species.csv' n'a pas été trouvé.")
+        raise HTTPException(status_code=404, detail="The file 'iris_species.csv' was not found.")
     try:
         df = pd.read_csv(iris_csv_path)
         return JSONResponse(content=df.to_dict(orient="records"))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur lors du chargement des données : {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error loading data: {str(e)}")
 
 
 @router.get("/datasets/iris_species/preprocessed", tags=["data"])
 def preprocess_iris_dataset():
     """
-    Prétraite le dataset Iris : gestion des valeurs manquantes, encodage, etc.
+    Preprocess the `iris_species.csv` dataset:
+    - Handle missing values.
+    - Encode categorical columns.
+
+    Returns:
+        JSONResponse: Preprocessed dataset in JSON format.
+
+    Raises:
+        HTTPException: If the dataset file is not found or processing fails.
     """
     iris_csv_path = DATA_FOLDER + "/iris_species.csv"
     if not os.path.exists(iris_csv_path):
-        raise HTTPException(status_code=404, detail="Le fichier 'iris_species.csv' n'a pas été trouvé.")
-    
+        raise HTTPException(status_code=404, detail="The file 'iris_species.csv' was not found.")
+
     try:
         df = pd.read_csv(iris_csv_path)
 
-        # Exemple de prétraitement
-        # 1. Suppression des valeurs manquantes
-        df.dropna(inplace=True)
-        
-        # 2. Encodage des colonnes catégoriques (si nécessaire)
+        # Preprocessing steps
+        df.dropna(inplace=True)  # Remove missing values
         if "species" in df.columns:
-            df["species"] = df["species"].astype("category").cat.codes
-        
-    
+            df["species"] = df["species"].astype("category").cat.codes  # Encode categorical data
+
         return JSONResponse(content=df.to_dict(orient="records"))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur lors du traitement des données : {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing data: {str(e)}")
 
 
 @router.api_route("/datasets/split", methods=["GET", "POST"], tags=["data"])
-def train_test_split_endpoint(
-    test_size: float = 0.2,
-    random_state: int = 42,
-):
+def train_test_split_endpoint(test_size: float = 0.2, random_state: int = 42):
     """
-    Effectue un train/test split sur un dataset donné.
-    Les paramètres peuvent être passés via une requête GET ou un formulaire POST.
+    Perform a train/test split on the `iris_species.csv` dataset.
+
+    Args:
+        test_size (float): Proportion of the dataset to include in the test split. Default is 0.2.
+        random_state (int): Random seed for reproducibility. Default is 42.
+
+    Yields:
+        str: A streaming response with data about the train/test split.
+
+    Raises:
+        HTTPException: If the dataset file is not found or an error occurs during processing.
     """
-    
     iris_csv_path = DATA_FOLDER + "/iris_species.csv"
 
     if not os.path.exists(iris_csv_path):
-        raise HTTPException(status_code=404, detail=f"Le fichier '{iris_csv_path}.csv' n'a pas été trouvé.")
+        raise HTTPException(status_code=404, detail=f"The file '{iris_csv_path}.csv' was not found.")
 
     try:
-        # Étape 1 : Charger les données
         sleep(1)
         df = pd.read_csv(iris_csv_path)
-
-        # Étape 2 : Prétraitement
         sleep(1)
         df.dropna(inplace=True)
         if "Species" in df.columns:
             df["Species"] = df["Species"].astype("category").cat.codes
 
-        # Étape 3 : Division des données
         sleep(1)
         X = df.drop("Species", axis=1)
         y = df["Species"]
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
 
-        # Préparer les résultats
         train_data = pd.concat([X_train, y_train], axis=1).to_json(orient="records")
         test_data = pd.concat([X_test, y_test], axis=1).to_json(orient="records")
 
-        # Étape finale : Envoi des résultats
         yield f"data: Train Split: {train_data}\n\n"
         yield f"data: Test Split: {test_data}\n\n"
-        yield "data: Processus terminé avec succès !\n\n"
+        yield "data: Process completed successfully!\n\n"
     except Exception as e:
-        yield f"data: Erreur : {str(e)}\n\n"
+        yield f"data: Error: {str(e)}\n\n"
+
 
 @router.post("/train-model", tags=["model"])
 def train_classification_model():
     """
-    Entraîne un modèle de classification à partir du dataset traité.
-    Enregistre le modèle dans le dossier src/models.
+    Train a RandomForestClassifier using the `iris_species.csv` dataset.
+    The trained model is saved to the `src/models` folder.
+
+    Returns:
+        dict: Details about the trained model, including its save path and parameters.
+
+    Raises:
+        HTTPException: If the dataset is missing or if an error occurs during training.
     """
     iris_csv_path = os.path.join(DATA_FOLDER, "iris_species.csv")
     if not os.path.exists(iris_csv_path):
-        raise HTTPException(status_code=404, detail="Le dataset traité est introuvable.")
+        raise HTTPException(status_code=404, detail="Processed dataset not found.")
 
-    # Charger le dataset
     try:
         df = pd.read_csv(iris_csv_path)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur lors du chargement du dataset : {str(e)}")
-    
-    # Vérifier que la colonne cible 'Species' est présente
+        raise HTTPException(status_code=500, detail=f"Error loading the dataset: {str(e)}")
+
     if "Species" not in df.columns:
-        raise HTTPException(status_code=500, detail="Le dataset doit inclure la colonne 'Species'.")
+        raise HTTPException(status_code=500, detail="The dataset must include the 'Species' column.")
 
     try:
-        # Séparation des features et de la cible
         X = df.drop("Species", axis=1)
         y = df["Species"]
 
-        # Charger les paramètres du modèle depuis model_parameters.json
         model_parameters = load_model_parameters().get("RandomForestClassifier", {})
         model = RandomForestClassifier(**model_parameters)
-
-        # Entraîner le modèle
         model.fit(X, y)
 
-        # Sauvegarder le modèle entraîné
         model_path = os.path.join(MODELS_FOLDER, "iris_random_forest_model.pkl")
         joblib.dump(model, model_path)
 
         return {
-            "message": "Modèle entraîné et sauvegardé avec succès.",
+            "message": "Model trained and saved successfully.",
             "model_path": model_path,
             "parameters": model_parameters
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur pendant l'entraînement du modèle : {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error during model training: {str(e)}")
+
 
 @router.get("/datasets/iris_species/full_process", tags=["data"])
 async def full_process_iris_dataset_stream(test_size: float = 0.2, random_state: int = 42):
     """
-    Exécute le processus complet avec des événements en streaming :
-    - Chargement des données
-    - Prétraitement
-    - Train/Test Split
-    - Entraînement du modèle
+    Execute the complete pipeline for the `iris_species.csv` dataset:
+    - Load data.
+    - Preprocess data.
+    - Perform train/test split.
+    - Train a machine learning model.
+
+    Args:
+        test_size (float): Proportion of the dataset to include in the test split. Default is 0.2.
+        random_state (int): Random seed for reproducibility. Default is 42.
+
+    Returns:
+        StreamingResponse: A live stream of updates about the pipeline's progress.
     """
     iris_csv_path = os.path.join(DATA_FOLDER, "iris_species.csv")
 
     async def event_stream():
         try:
-            # Étape 1 : Chargement des données
-            yield "data: Étape 1 : Chargement des données...\n\n"
+            yield "data: Step 1: Loading data...\n\n"
             sleep(1)
             df = pd.read_csv(iris_csv_path)
 
-            # Étape 2 : Prétraitement
-            yield "data: Étape 2 : Prétraitement...\n\n"
+            yield "data: Step 2: Preprocessing data...\n\n"
             sleep(1)
             df.dropna(inplace=True)
             if "Species" in df.columns:
                 df["Species"] = df["Species"].astype("category").cat.codes
 
-            # Sauvegarde des données prétraitées
             df.to_csv(iris_csv_path, index=False)
 
-            # Étape 3 : Division des données
-            yield "data: Étape 3 : Division des données...\n\n"
+            yield "data: Step 3: Splitting data...\n\n"
             sleep(1)
             X = df.drop(columns=["Id", "Species"])  # Exclude 'Id' and 'Species'
             y = df["Species"]
-            yield f"data: X : {X}\n\n"
-
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
 
-            # Préparer les résultats
-            train_data = pd.concat([X_train, y_train], axis=1).to_json(orient="records")
-            test_data = pd.concat([X_test, y_test], axis=1).to_json(orient="records")
-            if train_data :
-                yield f"data: Train Split: ok \n\n"
-            if test_data:
-                yield f"data: Test Split: ok \n\n"
-
-            # Étape 4 : Entraînement du modèle
-            yield "data: Étape 4 : Entraînement du modèle avec train split...\n\n"
+            yield "data: Step 4: Training model...\n\n"
             sleep(1)
             model_parameters = load_model_parameters().get("RandomForestClassifier", {})
             model = RandomForestClassifier(**model_parameters)
-            model.fit(X_train, y_train)  # Utilisation des splits d'entraînement
+            model.fit(X_train, y_train)
 
-            # Sauvegarde du modèle
             model_path = os.path.join(MODELS_FOLDER, "iris_random_forest_model.pkl")
             joblib.dump(model, model_path)
 
-            yield f"data: Modèle entraîné sur train split et sauvegardé à {model_path}\n\n"
-
-            # Fin du processus
-            yield "data: Processus complet terminé avec succès !\n\n"
+            yield f"data: Model trained and saved at {model_path}\n\n"
+            yield "data: Full process completed successfully!\n\n"
         except Exception as e:
-            yield f"data: Erreur : {str(e)}\n\n"
+            yield f"data: Error: {str(e)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
-
 @router.post("/predict", tags=["model"])
 def predict_with_model(features: dict):
     """
-    Endpoint to make predictions with the trained RandomForest model.
+    Predict outcomes using a trained RandomForest model.
 
     Args:
-        features (dict): Input features for prediction, as a JSON object.
+        features (dict): A dictionary containing input features for prediction.
 
     Returns:
-        JSON: Predictions for the input features.
+        dict: Predictions and their probabilities for the given input features.
+
+    Raises:
+        HTTPException: If the trained model is missing or if the input features are invalid.
     """
     model_path = os.path.join(MODELS_FOLDER, "iris_random_forest_model.pkl")
 
@@ -614,17 +669,14 @@ def predict_with_model(features: dict):
     try:
         model = joblib.load(model_path)
 
-        # Convert to NumPy array
         input_features = np.array(list(features.values())).reshape(1, -1)
 
         if input_features.shape[1] != model.n_features_in_:
             raise HTTPException(
                 status_code=400,
-
                 detail=f"Model expects {model.n_features_in_} features, but received {input_features.shape[1]}"
             )
 
-        # Make predictions
         predictions = model.predict(input_features)
         probabilities = model.predict_proba(input_features)
 
@@ -635,7 +687,7 @@ def predict_with_model(features: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during prediction: {str(e)}")
 
-    
+
 @router.post("/predict/ui", response_class=HTMLResponse, tags=["model"])
 async def predict_from_ui(
     request: Request,
@@ -645,7 +697,17 @@ async def predict_from_ui(
     petal_width: float = Form(...)
 ):
     """
-    Process input from the prediction form and send it to the /predict endpoint.
+    Process input from a prediction form and predict outcomes using a trained model.
+
+    Args:
+        request (Request): The HTTP request object.
+        sepal_length (float): Sepal length value provided by the user.
+        sepal_width (float): Sepal width value provided by the user.
+        petal_length (float): Petal length value provided by the user.
+        petal_width (float): Petal width value provided by the user.
+
+    Returns:
+        HTMLResponse: A rendered HTML page showing the prediction results.
     """
     input_features = {
         "sepal_length": sepal_length,
@@ -654,7 +716,6 @@ async def predict_from_ui(
         "petal_width": petal_width,
     }
 
-    # Send data to the /predict endpoint
     predictions = None
     try:
         model_response = predict_with_model(input_features)
@@ -662,7 +723,6 @@ async def predict_from_ui(
     except HTTPException as e:
         predictions = {"error": e.detail}
 
-    # Render the response in HTML
     return templates.TemplateResponse(
         "predict_result.html",
         {"request": request, "predictions": predictions, "features": input_features}
@@ -672,23 +732,24 @@ async def predict_from_ui(
 @router.post("/create-parameters", tags=["firestore"])
 def create_firestore_parameters():
     """
-    Creates the 'parameters' Firestore collection with 'n_estimators' and 'criterion'.
+    Create a Firestore document containing default model parameters.
+
+    Returns:
+        dict: A confirmation message and the parameters saved.
+
+    Raises:
+        HTTPException: If an error occurs while creating the document.
     """
     try:
-        # Define the parameters you want to save
         parameters = {
             "n_estimators": 100,
             "criterion": "gini"
         }
 
-        # Reference to the Firestore collection and document
         doc_ref = db.collection("parameters").document("parameters")
-
-        # Set the data for the document
         doc_ref.set(parameters)
 
         return {"message": "Firestore document 'parameters' created successfully", "parameters": parameters}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating Firestore document: {str(e)}")
 
@@ -696,13 +757,16 @@ def create_firestore_parameters():
 @router.get("/retrieve-parameters", tags=["firestore"])
 def retrieve_firestore_parameters():
     """
-    Retrieve parameters from the Firestore 'parameters' document.
+    Retrieve model parameters from a Firestore document.
+
+    Returns:
+        dict: Retrieved parameters.
+
+    Raises:
+        HTTPException: If the document is not found or an error occurs during retrieval.
     """
     try:
-        # Reference to the Firestore collection and document
         doc_ref = db.collection("parameters").document("parameters")
-
-        # Get the document
         doc = doc_ref.get()
 
         if doc.exists:
@@ -710,12 +774,20 @@ def retrieve_firestore_parameters():
             return {"message": "Parameters retrieved successfully", "parameters": parameters}
         else:
             raise HTTPException(status_code=404, detail="Document 'parameters' not found in Firestore")
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving parameters: {str(e)}")
 
 
 @router.get("/protected-endpoint")
-@limiter.limit("5/minute")  # Limite à 5 requêtes par minute par utilisateur
+@limiter.limit("5/minute")  # Limit to 5 requests per minute per user
 async def protected_endpoint(request: Request):
+    """
+    A rate-limited endpoint accessible by users.
+
+    Args:
+        request (Request): The incoming HTTP request object.
+
+    Returns:
+        dict: A success message indicating the endpoint is accessible.
+    """
     return {"message": "This endpoint is rate-limited per user!"}
